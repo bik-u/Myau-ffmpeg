@@ -1,6 +1,5 @@
 import asyncio
 import discord
-import cmds
 import settings
 
 intents = discord.intents(
