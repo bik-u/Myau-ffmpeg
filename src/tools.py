@@ -1,5 +1,5 @@
 """
- For misc. data types that are usefull and needed in multiple other modules
+ For misc. data types needed in multiple other modules
 """
 
 

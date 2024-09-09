@@ -1,6 +1,7 @@
 import asyncio
 import discord
 import settings
+import cmds 
 
 intents = discord.intents(
     GUILD_MESSAGES=True,
@@ -13,7 +14,6 @@ bot = discord.Bot(cmd_prefix=".", token=TOKEN, intents=intents)
 
 
 async def main():
-    await cmds.update_prefix_cache(bot)
     await bot.start()
 
 

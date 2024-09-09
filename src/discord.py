@@ -2,6 +2,7 @@
     Module for discord connections
 """
 import traceback
+from enum import Enum
 import json
 from dataclasses import dataclass
 import asyncio
@@ -14,7 +15,7 @@ from aiohttp import ClientSession, TCPConnector, FormData
 
 RECV_TIMEOUT = 40
 PING_TIMEOUT = 0.5
-API_LINK = "https://discord.com/api/"
+API_LINK = "https://discord.com/api/v10/"
 GATE_WAY = "wss://gateway.discord.gg/?v=8&encoding=json&compress=zlib-stream"
 ZLIB_SUFFIX = b"\x00\x00\xff\xff"
 CND_LINK = "https://cdn.discordapp.com/"
@@ -31,7 +32,7 @@ HTTP_PUT_OK = 204
 class _network:
     """abstract network class"""
 
-    network_se = None
+    network_se: ClientSession = None
 
     def __init__(self):
         pass
@@ -40,43 +41,8 @@ class _network:
     async def create_session():
         _network.network_se = ClientSession(connector=TCPConnector())
 
-    async def get_request(self, url, **kwargs):
-        """make a get request and return results"""
-        if not self.network_se:
-            return
 
-        async with self.network_se.get(url, **kwargs) as response:
-            status = response.status
-            if status == HTTP_OK:
-                try:
-                    return status, await response.text()
-                except UnicodeDecodeError:
-                    return status, await response.read()
-            else:
-                return status, await response.read()
-
-    async def put_request(self, url, **kwargs):
-        """make a put request and return results"""
-        if not self.network_se:
-            return
-
-        async with self.network_se.put(url, **kwargs) as response:
-            status = response.status
-            return status, await response.read()
-
-    async def post_request(self, url, **kwargs):
-        """make a post request"""
-        if not self.network_se:
-            return "No session"
-
-        async with self.network_se.post(url, **kwargs) as response:
-            return response.status, await response.text()
-
-    async def patch_request(self, url, **kwargs):
-        async with self.network_se.patch(url, **kwargs) as response:
-            return response.status, await response.text()
-
-class _websocket(_network):
+class _websocket:
     """general websocket class"""
 
     def __init__(self):
@@ -227,7 +193,7 @@ class Bot(_websocket):
         for cmd_name, cmd_lst in Bot.commands.items():
             if ct[p_len:] == cmd_name:
                 for cmd in cmd_lst:
-                    await cmd(Context(self, msg))
+                    await cmd(self, msg)
         pass
 
     async def on_voice_state_update(self, msg):
@@ -248,8 +214,8 @@ class Bot(_websocket):
     async def on_interact_crt(self, msg):
         data = msg['d']
         for k, v in Bot.interactions.items():
-            if k == (data['type'], data['data']['name']):
-                await v(InterContext(self, msg))
+            if k == (data['type'], data['data'].get('name')):
+                await v(InteractionContext(self, msg))
 
     ts = {
         "INTERACTION_CREATE": on_interact_crt,
@@ -366,8 +332,6 @@ class Bot(_websocket):
     def on_interact(inter_type=None, name=None):
         
         def add_interaction(func):
-            if not inter_type or name:
-                pass
             Bot.interactions[(inter_type, name)] = func
             
         return add_interaction
@@ -425,6 +389,24 @@ class BotVoice(_websocket):
         print("Starying@")
 
 
+class MessageFlags(Enum):
+    CROSSPOSTED = 1 << 0
+    IS_CROSSPOST = 1 << 1
+    SUPPRESS_EMBEDS = 1 << 2
+    SOURCE_MESSAGE_DELETED = 1 << 3
+    URGENT = 1 << 4
+    HAS_THREAD = 1 << 5
+    EPHEMERAL = 1 << 6
+    LOADING = 1 << 7
+    FAILED_TO_MENTION_SOME_ROLES_IN_THREAD= 1 << 8
+    SUPPRESS_NOTIFICATIONS = 1 << 9
+    IS_VOICE_MESSAGE = 1 << 10
+
+
+def message_flag(*args):
+    return sum([x.value for x in args])
+    
+
 def intents(
     GUILDS=False,
     GUILD_MEMBERS=False,
@@ -477,244 +459,182 @@ def intents(
     return intent
 
 
+class InteractionType(Enum):
+    PING=1
+    APPLICATION_COMMAND=2
+    MESSAGE_COMPONENT=3
+    APPLICATION_COMMAND_AUTOCOMPLETE=4
+    MODAL_SUBMIT=5
+    
+
+class InteractionCallbackType(Enum):
+    PONG=1
+    CHANNEL_MESSAGE_WITH_SOURCE=4
+    DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE=5
+    DEFERRED_UPDATE_MESSAGE=6
+    UPDATE_MESSAGE=7
+    APPLICATION_COMMAND_AUTOCOMPLETE_RESULT=8
+    MODAL=9
+    PREMIUM_REQUIRED=10
+
+    
+class ApplicationCommandOptionType(Enum):
+    SUB_COMMAND = 1
+    SUB_COMMAND_GROUP = 2
+    STRING = 3
+    INTEGER = 4
+    BOOLEAN = 5
+    USER = 6
+    CHANNEL = 7
+    ROLE = 8
+    MENTIONABLE = 9
+    NUMBER = 10
+    ATTACHMENT = 11
+
+class ComponentTypes(Enum):
+    ACTION_ROW = 1
+    BUTTON = 2
+    STRING_SELECT = 3
+    TEXT_INPUT = 4
+    USER_SELECT = 5
+    ROLE_SELECT = 6
+    MENTIONABLE_SELECT = 7
+    CHANNEL_SELECT = 8
+    
+class ButtonStyles(Enum):
+    PRIMARY = 1
+    SECONDARY = 2
+    SUCCESS = 3
+    DANGER = 4
+    LINK = 5
+
 @dataclass
-class Embed:
-    fields: int
+class AutocompleteChoices:
+    name: str
+    value: str
 
-
-class Context(_network):
-    """general class for op 0 gateway events types"""
-
-    def __init__(self, bot, msg):
-        super().__init__()
+class InteractionContext:
+    """ A universal context class for interactions capable of doing random
+        things that help simplify command making
+    """
+    
+    def __init__(self, bot, interaction):
         self.bot = bot
-        self.data = msg
+        self.d = interaction['d']
+        self.data = self.d.get('data')
+        self.id = self.d.get('id')
+        self.token = self.d.get('token')
+        self.options = None
+        if not self.data:
+            return self
+        if InteractionType(self.d['type']) in \
+            [InteractionType.APPLICATION_COMMAND,
+                InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE]:
+            self.options = self.data.get('options')
+        self.user_id = None
+        self.guild_id = self.d.get('guild_id')
+        if self.d.get('member'):
+            self.user_id = self.d['member']['user']['id']
+        self.components = []
+        self.content = None
+        self.flags = None
 
-    async def get_hdr(self):
-        """return a default authorization header"""
-        return {
-            "Authorization": f"Bot {self.bot.token}",
-            "Content-Type": "multipart/form-data",
+    def add_button(self, style: ButtonStyles, label: str=None,
+        emoji: str=None, custom_id: str=None, url: str=None,
+        disabled:bool=False, layer:int=0) -> dict:
+        button = {
+            "type": ComponentTypes.BUTTON.value,
+            "style": style.value,
+            "disabled": disabled
         }
-
-
-    async def send_msg(
-        self, txt=None, file=None, file_name='cat.png',
-        channel_id=None, embeds=None, mention_object=None,
-        reference=None
-    ):
-        """create & send message to the channel in context"""
-        data = FormData()
-        pload = Atrdict()
-        pload.content = txt
-        pload.embeds = embeds
-        pload.message_reference = reference
-        pload.allowed_mentions = mention_object
-        if not mention_object:
-            pload.allowed_mentions = {"parse": []}
-        if not reference:
-            m_data = self.data['d']
-            pload.message_reference = {
-                "message_id": m_data['id'],
-                "guild_id": m_data['guild_id'],
-                "channel_id": m_data['channel_id']
-            }
-        hdrs = await self.get_hdr()
-        if file:
-            del hdrs["Content-Type"]
-            data.add_field(
-                "file", file, filename=file_name, content_type="multipart/formdata"
-            )
-            data.add_field("payload_json", json.dumps(pload))
-        else:
-            hdrs["Content-Type"] = "application/json"
-            data = json.dumps(pload)
-        ch_id = channel_id if channel_id else self.data["d"]["channel_id"]
-        r = await self.post_request(
-            API_LINK + f"channels/{ch_id}/messages", headers=hdrs, data=data
-        )
-        return r
+        if label:
+            button['label'] = label
+        if emoji:
+            button['emoji'] = emoji
+        if custom_id:
+            button['custom_id'] = custom_id
+        if url:
+            button['url'] = url
+        self.components[layer]['components'].append(button)
     
+    def add_action_row(self):
+        self.components.append({
+            "type": ComponentTypes.ACTION_ROW.value,
+            "components": [
+                
+            ]
+        })
+
+    def add_content(self, content: str):
+        self.content = content
     
-    async def send_response_msg(
-        self, txt=None, file=None, file_name="cat.png", inter_type=7
-    ):
-        """ Create and send a reponse to interaction with a message """
+    def add_flags(self, *flags):
+        self.flags = message_flag(*flags)                
 
-        inter_id = self.data['d']['id']
-        inter_token = self.data['d']['token']
-        data = FormData()
-        hdrs = await self.get_hdr()
-        del hdrs["Content-Type"]
-        data.add_field("payload_json", json.dumps({
-            "type": inter_type,
-            "data": {
-                "content": txt
-            }
-        }))
-        if file:
-            data.add_field("file", file,
-                filename=file_name,
-                content_type="multipart/formdata"
-            )
-        r = await self.post_request(
-            API_LINK + f"interactions/{inter_id}/{inter_token}/callback",
-            headers=hdrs, data=data 
-        )
-
-        return r
-
-    async def send_autocomplete_result(self, choices):
-        """ Create auto complete results and respond to interaction """
-        inter_id = self.data['d']['id']
-        inter_token = self.data['d']['token']
-        data = FormData()
-        hdrs = await self.get_hdr()
-        hdrs['Content-Type'] = 'application/json'
-        # del hdrs['Content-Type']
-        data = {
-            "type": 8,
-            "data": {
-                "choices": choices
-            }
-        }
-
-        r = await self.post_request(
-            API_LINK + f"interactions/{inter_id}/{inter_token}/callback",
-            headers=hdrs, json=data
-        )
+    def get_subgroup(self):
+        if not self.options:
+            return
         
-        return r
+        return self.options[0]
 
-
-    async def trigger_typing(self, channel_id=None):
-        """Fire a typing event"""
-        hdrs = await self.get_hdr()
-        if not channel_id:
-            ch_id = self.data["d"]["channel_id"]
-        else:
-            ch_id = channel_id
-        url = f"{API_LINK}channels/{ch_id}/typing"
-        return await self.post_request(url, headers=hdrs)
-
-    def embed(self, title="", description=""):
-        return
-
-    async def create_dm(self, rec_id=None):
-        """Create a dm channel and return it"""
-        url = API_LINK + "users/@me/channels"
-        if rec_id is None:
-            authour = self.data["d"]["author"]
-            rec_id = authour["id"]
-        hdrs = await self.get_hdr()
-        hdrs["Content-Type"] = "application/json"
-        data = json.dumps({"recipient_id": rec_id})
-        status, resul = await self.post_request(url, headers=hdrs, data=data)
-        if resul:
-            return Dm_channel(self.bot, self.data, json.loads(resul))
-        else:
-            return None
-
-    async def create_reaction(self, emoji, channel_id=None, message_id=None):
-        data = self.data["d"]
-        url = API_LINK + "channels/"
-        if channel_id and message_id:
-            url += f"{channel_id}/messages/{message_id}/reactions/{emoji}/@me"
-        else:
-            url += f"{data['channel_id']}/messages/{data['id']}/reactions/{emoji}/@me"
-
-        hdrs = await self.get_hdr()
-        await self.put_request(url, headers=hdrs)
-
-    async def get_guild(self, gid=None):
-        if not gid:
-            gid = self.data["d"]["guild_id"]
-        url = API_LINK + "guilds/" + gid
-        return await self.get_request(url, headers=await self.get_hdr())
-
-    async def get_guild_members(self, gid=None, limit=1000, after=0):
-        data = self.data["d"]
-        d2 = {"limit": limit, "after": after}
-        gid = gid or data["guild_id"]
-        url = API_LINK + "guilds/" + gid + "/members"
-        return await self.get_request(
-            url, headers=await self.get_hdr(), data=json.dumps(d2)
-        )
-
-    async def get_guild_member(self, gid=None, uid=None):
-        data = self.data["d"]
-        if not uid:
-            uid = data["author"]["id"]
-        if not gid:
-            gid = data["guild_id"]
-        url = API_LINK + "guilds/" + gid + "/members/" + uid
-        return await self.get_request(url, headers=await self.get_hdr())
-
-    async def get_user(self, uid=None):
-        if not uid:
-            uid = self.data['d']['author']['id']
-        url = f"{API_LINK}users/{uid}"
-        return await self.get_request(url, headers=await self.get_hdr())
-
-    async def get_user_avatar(self, hash=None, uid=None, format='.png'):
-        user = uid or self.data['d']['author']['id']
-        if not hash:
-            hash = json.loads((await self.get_user(uid=uid))[1])['avatar']
-        return f"{CND_LINK}avatars/{user}/{hash}{format}"
-
-    async def edit_orig_response(self, txt=None, file=None,
-        embeds=None, file_name="cat.png"):
-        data = FormData()
-        token = self.data['d']['token']
-        hdrs = await self.get_hdr()
-        del hdrs['Content-Type']
-        data.add_field("payload_json", json.dumps({
-                "content": txt,
-                "embeds": embeds
-            }))
-        if file:
-            data.add_field("file", file,
-                    filename=file_name,
-                    content_type="img"
-            )
-        r = await self.patch_request(
-                f"{API_LINK}webhooks/{self.bot.user_id}/{token}/messages/@original",
-                headers=hdrs, data=data
-                )
-        return r
-
-
-class Dm_channel(Context):
-    """Dm channel"""
-
-    def __init__(self, bot, msg, dm_channel):
-        super().__init__(bot, msg)
-        self.dm_channel = dm_channel
-
-    async def send_msg(
-        self, txt=None, file=None, channel_id=None, embeds=None, mention_object=None
-    ):
-        """Send msg to the dm channel"""
-        if not channel_id:
-            ch_id = self.dm_channel["id"]
-        else:
-            ch_id = channel_id
-        return await super().send_msg(
-            txt=txt,
-            file=file,
-            channel_id=ch_id,
-            embeds=embeds,
-            mention_object=mention_object,
-        )
-
-
-class InterContext(Context):
+    def get_option(self, *names, opts=None, layer=0):
+        if not opts:
+            opts = self.options
+        if not opts:
+            return
+        for v in opts:
+            if layer == 0:
+                if v.get('name') in names:
+                    return v
+            elif v.get('options'):
+                return self.get_option(*names,
+                    opts=v['options'], layer=layer-1)
+                
+    def make_link(self, *args):
+        return f"{API_LINK}interactions/{'/'.join(args)}" 
     
-    def __init__(self, bot, msg):
-        super().__init__(bot, msg)
-        data = msg['d']
-        self.gid = data['guild_id']
-        self.user_data = data['member']['user']
-        self.uid = self.user_data['id']
-        self.username = self.user_data['username']
-        self.options = data['data'].get('options')
+    async def _send_msg(self, url=None, file=None, filename=None, data=None):
+        pload = FormData()
+        if file:
+            pload.add_field('file', file, filename=filename,
+                content_type="multipart/formdata")
+        pload.add_field('payload_json', json.dumps(data), content_type="multipart/formdata")
+        return await _network.network_se.post(
+            url, data=pload
+        )
+
+    async def send_msg_src(self, file=None, filename=None):
+        pload = {}
+        if self.content:
+            pload['content'] = self.content
+        if self.flags:
+            pload['flags'] = self.flags
+        if len(self.components) > 0:
+            pload['components'] = self.components
+        return await self._send_msg(
+            self.make_link(self.id, self.token, 'callback'),
+            file=file, filename=filename,
+            data={"type": InteractionCallbackType.CHANNEL_MESSAGE_WITH_SOURCE.value,
+                  "data": pload
+            }
+        )
+    
+    async def send_autocomplete(self, arr: list[AutocompleteChoices]):
+        return await _network.network_se.post(self.make_link(
+            self.d['id'], self.d['token'], 'callback'
+        ), json={
+            "type": InteractionCallbackType.APPLICATION_COMMAND_AUTOCOMPLETE_RESULT.value,
+            "data": {'choices': [{'name': x.name, 'value': x.value} for x in arr]}
+        })
+
+    async def defer_msg_with_src(self):
+        """ Ack an interaction, user sees a loading state """
+        return await _network.network_se.post(self.make_link(
+            self.application_id, self.token
+        ), data={'type': InteractionCallbackType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE.value})
+    
+    async def defer_update_msg(self):
+        """ Ack an interaction, but user does not see a loading state """
+        return await _network.network_se.post(self.make_link(
+            self.d['id'], self.d['token'], 'callback'
+        ), data={'type': InteractionCallbackType.DEFERRED_UPDATE_MESSAGE.value})
