@@ -52,7 +52,7 @@ async def _yt_dl(ctx):
                         f"need format option after the {s[i]} flag.."
                     )
 
-    await _yt_dl(ctx.send_msg, s[1], format=format)
+    await _yt_dl_res(ctx.send_msg, s[1], format=format)
 
 
 @Bot.on_interact(inter_type=2, name="ytdl")
@@ -60,7 +60,7 @@ async def _ytdl_interact(ctx: Context):
     pass 
 
 
-async def _yt_dl(response_func, link, format=None):
+async def _yt_dl_res(response_func, link, format=None):
     options = ['-f',]
     
     if format:
