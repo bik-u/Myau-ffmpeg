@@ -18,5 +18,5 @@ async def main():
 
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(asyncio.wait([main()]))
+    while True:
+        asyncio.run(main())
