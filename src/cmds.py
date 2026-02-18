@@ -27,7 +27,6 @@ async def _edit_files(ctx: discord.InteractionContext):
     if url and atchment:
         #url takes priority
         atchment = None
-    if url:
              
 
 @Bot.command("ytdl")
