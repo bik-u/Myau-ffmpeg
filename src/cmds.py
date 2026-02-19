@@ -1,6 +1,7 @@
 from discord.discord import Bot
 from discord.contexts import InteractionContext as Context
 from discord.interaction_enums import InteractionType
+from settings import YT_DL_LOCATION, FFMPEG_LOCATION, COOKIES
 
 import random
 import asyncio
@@ -8,8 +9,6 @@ import aiofiles
 import settings
 from os import unlink
 
-FFMPEG_LOCATION = settings.FFMPEG_LOCATION
-YT_DL_LOCATION = settings.YT_DL_LOCATION 
 
 
 async def _get_frame_pic(frame: int, ):
@@ -72,7 +71,7 @@ async def _yt_dl_res(response_func, link, format=None):
     file_name = f"/tmp/{file_id}%(playlist_index)s.%(ext)s"
     proc = await asyncio.create_subprocess_exec(
             YT_DL_LOCATION, link, '--force-overwrites', '--ffmpeg-location',
-            FFMPEG_LOCATION, '--no-warnings', *options, '-o', file_name,
+            FFMPEG_LOCATION, '--no-warnings', *options, '--cookies', COOKIES, '-o', file_name,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
 
     stdout, stderr = await proc.communicate()
