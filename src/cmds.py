@@ -1,6 +1,7 @@
-from discord import Bot
-from discord import InteractionContext as Context
-import discord
+from discord.discord import Bot
+from discord.contexts import InteractionContext as Context
+from discord.interaction_enums import InteractionType
+
 import random
 import asyncio
 import aiofiles
@@ -16,8 +17,8 @@ async def _get_frame_pic(frame: int, ):
 
 
 @Bot.on_interact(
-    discord.InteractionType.APPLICATION_COMMAND, 'edit')
-async def _edit_files(ctx: discord.InteractionContext):
+   InteractionType.APPLICATION_COMMAND, 'edit')
+async def _edit_files(ctx: Context):
     """edit file(s) with ffmpeg"""
     url = ctx.get_option('url')
     atchment = ctx.get_option('file')
@@ -31,13 +32,13 @@ async def _edit_files(ctx: discord.InteractionContext):
 
 @Bot.command("ytdl")
 async def _yt_dl(ctx):
-    d = ctx.data['d']
-    s = d['content'].split()
+    s = ctx.data['content'].split()
     cmds = []
     await ctx.trigger_typing()
     cmd_opts = ['-f']
     if len(s) < 2:
-        return await ctx.send_msg("Needs a link")
+        await ctx.send_msg("Needs a link")
+        return
     
     format = None
 
@@ -53,11 +54,6 @@ async def _yt_dl(ctx):
                     )
 
     await _yt_dl_res(ctx.send_msg, s[1], format=format)
-
-
-@Bot.on_interact(inter_type=2, name="ytdl")
-async def _ytdl_interact(ctx: Context):
-    pass 
 
 
 async def _yt_dl_res(response_func, link, format=None):

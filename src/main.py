@@ -1,5 +1,5 @@
 import asyncio
-import discord
+import discord.discord as discord
 import settings
 import cmds 
 
